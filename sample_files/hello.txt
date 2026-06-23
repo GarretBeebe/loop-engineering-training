@@ -1,0 +1,4 @@
+Hello from sample_files/hello.txt!
+
+This file exists so the read_file tool has something to successfully read
+after recovering from a bad path.
