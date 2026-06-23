@@ -27,19 +27,18 @@ import sys
 import time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import anthropic
+from utils.provider import make_client, resolve_model, parse_args, RATE_LIMIT_ERRORS
 from utils.tools import READ_FILE_DEF, run_tool
 
-MODEL = "claude-haiku-4-5-20251001"
 MAX_RETRIES = 3
 
 
-def call_api_with_retry(client: anthropic.Anthropic, **kwargs) -> anthropic.types.Message:
+def call_api_with_retry(client, **kwargs):
     """Wrap API calls with exponential backoff on rate limit errors."""
     for attempt in range(MAX_RETRIES):
         try:
             return client.messages.create(**kwargs)
-        except anthropic.RateLimitError:
+        except RATE_LIMIT_ERRORS:
             if attempt == MAX_RETRIES - 1:
                 raise
             wait = 2 ** attempt
@@ -48,8 +47,9 @@ def call_api_with_retry(client: anthropic.Anthropic, **kwargs) -> anthropic.type
     raise RuntimeError("unreachable")
 
 
-def run():
-    client = anthropic.Anthropic()
+def run(provider="anthropic", model=None):
+    client = make_client(provider)
+    MODEL = resolve_model(provider, model)
 
     task = (
         "Please read the file 'missing.txt' and tell me what's in it. "
@@ -107,4 +107,5 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    args = parse_args()
+    run(provider=args.provider, model=args.model)

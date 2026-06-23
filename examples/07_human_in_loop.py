@@ -21,9 +21,7 @@ import os
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import anthropic
-
-MODEL = "claude-haiku-4-5-20251001"
+from utils.provider import make_client, resolve_model, parse_args
 
 EXECUTE_COMMAND_DEF = {
     "name": "execute_command",
@@ -54,8 +52,9 @@ def human_approve(command: str) -> bool:
     return answer == "y"
 
 
-def run():
-    client = anthropic.Anthropic()
+def run(provider="anthropic", model=None):
+    client = make_client(provider)
+    MODEL = resolve_model(provider, model)
 
     task = (
         "I need you to clean up my /tmp/test directory. "
@@ -114,4 +113,5 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    args = parse_args()
+    run(provider=args.provider, model=args.model)

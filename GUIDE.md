@@ -10,12 +10,20 @@ By the end you'll have the full mental model for how production agent loops work
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Install dependencies
-cd agentic-loop-examples
 uv sync
+```
 
-# Set your API key
+**Anthropic** (default provider):
+```bash
 export ANTHROPIC_API_KEY=sk-ant-...
 ```
+
+**Ollama** (local models, no API key needed):
+```bash
+ollama pull llama3.2   # https://ollama.com
+```
+
+Every example accepts `--provider anthropic` (default) or `--provider ollama`. Append `--model <name>` to override the default model for either provider.
 
 ---
 
@@ -37,10 +45,11 @@ while True:
 **Run it:**
 ```bash
 uv run python examples/01_bare_loop.py
+uv run python examples/01_bare_loop.py --provider ollama
 ```
 
 **Key lines to study:**
-- The `while True` / `break` structure (lines 52–72)
+- The `while True` / `break` structure — the skeleton every loop is built on
 - How `messages.append(...)` grows the context each turn
 - `[turn N]` in the output — watch how many API calls happen
 
@@ -74,11 +83,12 @@ Tool results go back as a **user** message with `type: "tool_result"`. The model
 **Run it:**
 ```bash
 uv run python examples/02_tool_loop.py
+uv run python examples/02_tool_loop.py --provider ollama
 ```
 
 **Key lines to study:**
-- The `stop_reason` branch (lines 44–48) — this is the heart of every tool loop
-- How `tool_results` is structured (lines 54–62) — notice `tool_use_id` links result to call
+- The `stop_reason` branch — this is the heart of every tool loop
+- How `tool_results` is structured — notice `tool_use_id` links result to call
 - The printed `messages in context: N` counter — it grows by 2 per tool round-trip
 
 **Exercises:**
@@ -91,22 +101,23 @@ uv run python examples/02_tool_loop.py
 
 **File:** `examples/03_multi_tool.py`
 
-**Concept:** Claude can call multiple tools in a single turn — one `tool_use` block per call. You must collect **all** of them and return **all** results in one user message. Returning results one at a time is an API error.
+**Concept:** The model can call multiple tools in a single turn — one `tool_use` block per call. You must collect **all** of them and return **all** results in one user message. Returning results one at a time is an API error.
 
 The agent autonomously picks which tools to use and in what order. You just define the interface and run whatever it asks for.
 
 **Run it:**
 ```bash
 uv run python examples/03_multi_tool.py
+uv run python examples/03_multi_tool.py --provider ollama
 ```
 
 **Key lines to study:**
-- `[b for b in response.content if b.type == "tool_use"]` (line 47) — collect all tool calls
-- The single `messages.append(...)` for all results (line 60) — they must travel together
-- The output line `Claude requested N tool call(s)` — does it batch them or call one at a time?
+- `[b for b in response.content if b.type == "tool_use"]` — collect all tool calls
+- The single `messages.append(...)` for all results — they must travel together
+- The output line `model requested N tool call(s)` — does it batch them or call one at a time?
 
 **Exercises:**
-1. Remove one tool from the `TOOLS` list. Does Claude adapt or error?
+1. Remove one tool from the `TOOLS` list. Does the model adapt or error?
 2. Ask a task that needs only one tool. Confirm it doesn't call the others unnecessarily.
 
 ---
@@ -128,12 +139,13 @@ Every loop needs at least a max-iterations safety ceiling even if you use anothe
 **Run it:**
 ```bash
 uv run python examples/04_stopping.py
+uv run python examples/04_stopping.py --provider ollama
 ```
 
 **Key lines to study:**
-- Strategy A: the `for turn in range(1, max_turns + 1)` ceiling (line 73)
-- Strategy B: `if text.strip().startswith("DONE:")` (line 104) — keyword check
-- Strategy C: `is_complete()` (lines 116–122) — the judge uses its own API call
+- Strategy A: the `for turn in range(1, max_turns + 1)` ceiling
+- Strategy B: `if text.strip().startswith("DONE:")` — keyword check
+- Strategy C: `is_complete()` — the judge uses its own API call
 
 **Exercises:**
 1. For Strategy B, change the signal to `"FINAL:"` — update both the system prompt and the check.
@@ -151,18 +163,21 @@ Two levels:
 1. **Tool errors** — catch in your dispatcher, return `"ERROR: ..."` as the tool result
 2. **API errors** — wrap `client.messages.create` in retry+backoff for rate limits
 
+The retry function catches `RATE_LIMIT_ERRORS` — a tuple from `utils/provider.py` that includes the right rate-limit exception class for whichever provider is active.
+
 **Run it:**
 ```bash
 uv run python examples/05_error_recovery.py
+uv run python examples/05_error_recovery.py --provider ollama
 ```
 
 **Key lines to study:**
-- `except (FileNotFoundError, ...) as e: result = f"ERROR: ..."` (lines 65–68) — the catch
+- `except (FileNotFoundError, ...) as e: result = f"ERROR: ..."` — the catch
 - The tool result still has `tool_use_id` — even errors must be paired with their call
-- `call_api_with_retry()` (lines 26–37) — exponential backoff pattern
+- `call_api_with_retry()` — exponential backoff pattern; `except RATE_LIMIT_ERRORS`
 
 **Exercises:**
-1. Change the task to give Claude three bad filenames. How far does it search?
+1. Change the task to give the model three bad filenames. How far does it search?
 2. Catch `Exception` broadly instead of specific types. What's the risk?
 
 ---
@@ -171,7 +186,7 @@ uv run python examples/05_error_recovery.py
 
 **File:** `examples/06_orchestrator.py`
 
-**Concept:** Sub-agents are API calls wrapped in a tool. The orchestrator sees a tool called `ask_worker`. When it calls it, your code makes a separate API call to a cheaper model. The orchestrator never sees the worker's chain-of-thought — only the final answer.
+**Concept:** Sub-agents are API calls wrapped in a tool. The orchestrator sees a tool called `ask_worker`. When it calls it, your code makes a separate API call to a different model. The orchestrator never sees the worker's chain-of-thought — only the final answer.
 
 ```
 Orchestrator (sonnet) --[ask_worker tool]--> Python function
@@ -185,15 +200,22 @@ This pattern scales: workers can have their own tool loops, you can run multiple
 **Run it:**
 ```bash
 uv run python examples/06_orchestrator.py
+
+# Ollama — both tiers, one model
+uv run python examples/06_orchestrator.py --provider ollama
+
+# Ollama — different models per tier
+uv run python examples/06_orchestrator.py --provider ollama \
+  --orchestrator-model llama3.1:8b --worker-model llama3.2
 ```
 
 **Key lines to study:**
-- `run_worker()` (lines 30–38) — the worker is just a function that returns a string
-- `WORKER_TOOL_DEF` (lines 41–57) — this is what makes it look like a tool to the orchestrator
+- `run_worker()` — the worker is just a function that returns a string
+- `WORKER_TOOL_DEF` — this is what makes it look like a tool to the orchestrator
 - The `[worker]` log lines in output — shows the two-model system working
 
 **Exercises:**
-1. Swap the orchestrator to `claude-haiku-4-5-20251001`. How does the quality change?
+1. Run with `--orchestrator-model` set to a smaller/cheaper model. How does quality change?
 2. Give the worker its own tool (e.g. `calculate`). Now it's a full sub-agent with a tool loop.
 
 ---
@@ -209,17 +231,39 @@ This is the safety layer for any irreversible action: file deletes, emails, API 
 **Run it:**
 ```bash
 uv run python examples/07_human_in_loop.py
+uv run python examples/07_human_in_loop.py --provider ollama
 ```
 When prompted `Allow? [y/n]`, try `n` first to see the model adapt, then `y` to let it succeed.
 
 **Key lines to study:**
-- `human_approve()` (lines 46–51) — this is where execution pauses
-- The rejection result string (line 70) — what you tell the model matters
-- `execute_command()` (lines 40–42) — stubbed here; in production, use `subprocess.run`
+- `human_approve()` — this is where execution pauses
+- The rejection result string — what you tell the model matters
+- `execute_command()` — stubbed here; in production, use `subprocess.run`
 
 **Exercises:**
 1. Change the rejection message to be more specific: `"REJECTED: too destructive. Use a safer rm."`. Does the model's alternative improve?
 2. Add an `is_dangerous(command)` heuristic that auto-rejects any command containing `rm -rf` without asking.
+
+---
+
+## The Provider Abstraction
+
+`utils/provider.py` is the thin layer that makes every example provider-agnostic. It exposes three helpers used by every example:
+
+```python
+args   = parse_args()                    # --provider and --model CLI flags
+client = make_client(args.provider)      # unified client for Anthropic or Ollama
+model  = resolve_model(args.provider, args.model)  # model name with provider default
+```
+
+`client.messages.create(**kwargs)` accepts Anthropic-style arguments (`model`, `max_tokens`, `messages`, `tools`, `system`) and returns a response with `.stop_reason` and `.content`.
+
+For Ollama, the adapter translates under the hood:
+- Anthropic tool definitions (`input_schema`) → OpenAI function format (`parameters`)
+- Anthropic message history → OpenAI chat messages (tool results split into separate `role: "tool"` messages)
+- OpenAI `finish_reason` → Anthropic `stop_reason` (`"stop"` → `"end_turn"`, `"tool_calls"` → `"tool_use"`)
+
+**The key insight:** the loop logic in every example is provider-agnostic. The patterns — `while True`, `stop_reason`, `tool_use_id`, appending results as user messages — are concepts, not API details.
 
 ---
 
@@ -268,7 +312,18 @@ for f in examples/0{1,2,3,4,5,6}_*.py; do
 done
 ```
 
+Same test against Ollama:
+
+```bash
+for f in examples/0{1,2,3,4,5,6}_*.py; do
+    echo "Running $f..."
+    uv run python "$f" --provider ollama && echo "OK: $f" || echo "FAILED: $f"
+    echo "---"
+done
+```
+
 Example 07 requires interactive input — run it separately:
 ```bash
 uv run python examples/07_human_in_loop.py
+uv run python examples/07_human_in_loop.py --provider ollama
 ```

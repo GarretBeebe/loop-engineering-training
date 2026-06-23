@@ -22,25 +22,22 @@ import os
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import anthropic
-
-ORCHESTRATOR_MODEL = "claude-sonnet-4-6"
-WORKER_MODEL = "claude-haiku-4-5-20251001"
+from utils.provider import make_client, resolve_model, DEFAULT_MODELS
 
 
 # ---------------------------------------------------------------------------
 # Worker: a standalone mini-agent (single call for simplicity here)
 # ---------------------------------------------------------------------------
 
-def run_worker(client: anthropic.Anthropic, prompt: str) -> str:
+def run_worker(client, worker_model: str, prompt: str) -> str:
     """Answer a focused sub-question. Returns the response text."""
     print(f"    [worker] prompt: {prompt[:80]}...")
     response = client.messages.create(
-        model=WORKER_MODEL,
+        model=worker_model,
         max_tokens=512,
         messages=[{"role": "user", "content": prompt}],
     )
-    answer = response.content[0].text.strip()
+    answer = next((b.text for b in response.content if b.type == "text"), "").strip()
     print(f"    [worker] answer: {answer[:80]}...")
     return answer
 
@@ -72,8 +69,12 @@ WORKER_TOOL_DEF = {
 # Orchestrator loop
 # ---------------------------------------------------------------------------
 
-def run():
-    client = anthropic.Anthropic()
+def run(provider="anthropic", orchestrator_model=None, worker_model=None):
+    client = make_client(provider)
+    ORCHESTRATOR_MODEL = orchestrator_model or (
+        "claude-sonnet-4-6" if provider == "anthropic" else DEFAULT_MODELS[provider]
+    )
+    WORKER_MODEL = resolve_model(provider, worker_model)
 
     task = (
         "Summarize the key pros and cons of using async Python (asyncio/FastAPI) "
@@ -115,7 +116,7 @@ def run():
                 if block.type != "tool_use":
                     continue
                 print(f"  Orchestrator delegating: {block.input['question'][:80]}")
-                worker_answer = run_worker(client, block.input["question"])
+                worker_answer = run_worker(client, WORKER_MODEL, block.input["question"])
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": block.id,
@@ -127,4 +128,13 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    import argparse
+    p = argparse.ArgumentParser()
+    p.add_argument("--provider", default=os.getenv("PROVIDER", "anthropic"),
+                   choices=["anthropic", "ollama"])
+    p.add_argument("--orchestrator-model", default=os.getenv("ORCHESTRATOR_MODEL"))
+    p.add_argument("--worker-model", default=os.getenv("WORKER_MODEL"))
+    args = p.parse_args()
+    run(provider=args.provider,
+        orchestrator_model=args.orchestrator_model,
+        worker_model=args.worker_model)

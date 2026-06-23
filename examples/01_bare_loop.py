@@ -20,14 +20,14 @@ import os
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import anthropic
+from utils.provider import make_client, resolve_model, parse_args
 
-MODEL = "claude-haiku-4-5-20251001"
 LINES_WANTED = 3  # a haiku has exactly 3 lines
 
 
-def run():
-    client = anthropic.Anthropic()
+def run(provider="anthropic", model=None):
+    client = make_client(provider)
+    MODEL = resolve_model(provider, model)
 
     messages = [
         {
@@ -56,7 +56,7 @@ def run():
         )
 
         # A bare loop response is always a single text block
-        assistant_text = response.content[0].text.strip()
+        assistant_text = next((b.text for b in response.content if b.type == "text"), "").strip()
         print(f"Assistant: {assistant_text}")
         print(f"stop_reason: {response.stop_reason}\n")
 
@@ -78,4 +78,5 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    args = parse_args()
+    run(provider=args.provider, model=args.model)

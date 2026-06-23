@@ -24,9 +24,8 @@ import os
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import anthropic
+from utils.provider import make_client, resolve_model, parse_args
 
-MODEL = "claude-haiku-4-5-20251001"
 TEXT_TO_SUMMARIZE = (
     "Python is a high-level, interpreted programming language known for its clear syntax "
     "and readability. It supports multiple programming paradigms including procedural, "
@@ -40,7 +39,7 @@ TEXT_TO_SUMMARIZE = (
 # Strategy A: Max iterations
 # ---------------------------------------------------------------------------
 
-def strategy_a_max_iterations(client: anthropic.Anthropic, max_turns: int = 3):
+def strategy_a_max_iterations(client, model: str, max_turns: int = 3):
     print("\n=== Strategy A: Max Iterations ===")
     messages = [
         {
@@ -54,9 +53,9 @@ def strategy_a_max_iterations(client: anthropic.Anthropic, max_turns: int = 3):
 
     for turn in range(1, max_turns + 1):
         response = client.messages.create(
-            model=MODEL, max_tokens=256, messages=messages
+            model=model, max_tokens=256, messages=messages
         )
-        text = next(b.text for b in response.content if b.type == "text")
+        text = next((b.text for b in response.content if b.type == "text"), "")
         print(f"Turn {turn}: {text[:120]}...")
         messages.append({"role": "assistant", "content": response.content})
 
@@ -70,7 +69,7 @@ def strategy_a_max_iterations(client: anthropic.Anthropic, max_turns: int = 3):
 # Strategy B: Keyword signal
 # ---------------------------------------------------------------------------
 
-def strategy_b_keyword(client: anthropic.Anthropic):
+def strategy_b_keyword(client, model: str):
     print("\n=== Strategy B: Keyword Signal ===")
     messages = [
         {
@@ -87,9 +86,9 @@ def strategy_b_keyword(client: anthropic.Anthropic):
     while True:
         turn += 1
         response = client.messages.create(
-            model=MODEL, max_tokens=256, messages=messages
+            model=model, max_tokens=256, messages=messages
         )
-        text = next(b.text for b in response.content if b.type == "text")
+        text = next((b.text for b in response.content if b.type == "text"), "")
         print(f"Turn {turn}: {text[:120]}...")
         messages.append({"role": "assistant", "content": response.content})
 
@@ -112,18 +111,18 @@ JUDGE_PROMPT = """You are evaluating whether a one-sentence summary is complete 
 Reply with only "YES" if it is ready, or "NO" if it could still be improved."""
 
 
-def is_complete(client: anthropic.Anthropic, summary: str) -> bool:
+def is_complete(client, model: str, summary: str) -> bool:
     response = client.messages.create(
-        model=MODEL,
+        model=model,
         max_tokens=8,
         system=JUDGE_PROMPT,
         messages=[{"role": "user", "content": f'Summary: "{summary}"'}],
     )
-    verdict = response.content[0].text.strip().upper()
+    verdict = next((b.text for b in response.content if b.type == "text"), "").strip().upper()
     return verdict.startswith("YES")
 
 
-def strategy_c_judge(client: anthropic.Anthropic):
+def strategy_c_judge(client, model: str):
     print("\n=== Strategy C: Confidence Judge ===")
     messages = [
         {
@@ -136,13 +135,13 @@ def strategy_c_judge(client: anthropic.Anthropic):
     while True:
         turn += 1
         response = client.messages.create(
-            model=MODEL, max_tokens=256, messages=messages
+            model=model, max_tokens=256, messages=messages
         )
-        text = next(b.text for b in response.content if b.type == "text")
+        text = next((b.text for b in response.content if b.type == "text"), "")
         print(f"Turn {turn}: {text[:120]}...")
         messages.append({"role": "assistant", "content": response.content})
 
-        if is_complete(client, text):
+        if is_complete(client, model, text):
             print("Stopped: judge approved the summary.")
             break
 
@@ -157,12 +156,14 @@ def strategy_c_judge(client: anthropic.Anthropic):
 # Main
 # ---------------------------------------------------------------------------
 
-def run():
-    client = anthropic.Anthropic()
-    strategy_a_max_iterations(client)
-    strategy_b_keyword(client)
-    strategy_c_judge(client)
+def run(provider="anthropic", model=None):
+    client = make_client(provider)
+    MODEL = resolve_model(provider, model)
+    strategy_a_max_iterations(client, MODEL)
+    strategy_b_keyword(client, MODEL)
+    strategy_c_judge(client, MODEL)
 
 
 if __name__ == "__main__":
-    run()
+    args = parse_args()
+    run(provider=args.provider, model=args.model)

@@ -14,15 +14,15 @@ import os
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import anthropic
+from utils.provider import make_client, resolve_model, parse_args
 from utils.tools import CALCULATE_DEF, GET_CURRENT_TIME_DEF, REVERSE_STRING_DEF, run_tool
 
-MODEL = "claude-haiku-4-5-20251001"
 TOOLS = [CALCULATE_DEF, GET_CURRENT_TIME_DEF, REVERSE_STRING_DEF]
 
 
-def run():
-    client = anthropic.Anthropic()
+def run(provider="anthropic", model=None):
+    client = make_client(provider)
+    MODEL = resolve_model(provider, model)
 
     task = (
         "Please do three things: "
@@ -81,4 +81,5 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    args = parse_args()
+    run(provider=args.provider, model=args.model)

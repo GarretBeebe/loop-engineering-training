@@ -18,14 +18,13 @@ import os
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import anthropic
+from utils.provider import make_client, resolve_model, parse_args
 from utils.tools import CALCULATE_DEF, run_tool
 
-MODEL = "claude-haiku-4-5-20251001"
 
-
-def run():
-    client = anthropic.Anthropic()
+def run(provider="anthropic", model=None):
+    client = make_client(provider)
+    MODEL = resolve_model(provider, model)
 
     task = "What is (17 * 4) + (sqrt(144) / 3)? Show your reasoning."
     messages = [{"role": "user", "content": task}]
@@ -81,4 +80,5 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    args = parse_args()
+    run(provider=args.provider, model=args.model)
